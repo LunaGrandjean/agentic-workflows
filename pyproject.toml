@@ -8,6 +8,7 @@ dependencies = [
     "google-cloud-aiplatform>=2.3.0",
     "google-cloud-bigquery>=3.46.1",
     "google-cloud-storage>=3.16.0",
+    "python-dotenv>=1.2.4",
 ]
 
 [project.scripts]
