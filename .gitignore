@@ -1,3 +1,7 @@
 .venv/
 .env
 session1_practice.md
+__pycache__/
+*.py[cod]
+data/
+compiled_pipelines/
