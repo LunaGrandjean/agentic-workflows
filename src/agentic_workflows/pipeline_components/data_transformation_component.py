@@ -16,6 +16,7 @@ def transform_yoda_data(
     train_dataset: OutputPath("Dataset"),
     test_dataset: OutputPath("Dataset"),
 ) -> None:
+    import json
     import logging
     from pathlib import Path
 
@@ -51,10 +52,10 @@ def transform_yoda_data(
 
     def to_conversation(example: dict) -> dict:
         return {
-            "messages": [
+            "messages": json.dumps([
                 {"role": "user", "content": str(example[source_column])},
                 {"role": "assistant", "content": str(example[target_column])},
-            ]
+            ], ensure_ascii=False)
         }
 
     formatted_dataset = dataset.map(

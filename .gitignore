@@ -1,7 +1,12 @@
 .venv/
+.venv-session3/
 .env
 session1_practice.md
 __pycache__/
 *.py[cod]
 data/
 compiled_pipelines/
+logs/
+models/
+.pytest_cache/
+.ipynb_checkpoints/

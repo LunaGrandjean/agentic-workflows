@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import pandas as pd
 from datasets import Dataset
@@ -38,10 +39,10 @@ def format_yoda_dataset(
 
     def to_conversation(example: dict) -> dict:
         return {
-            "messages": [
+            "messages": json.dumps([
                 {"role": "user", "content": str(example[source_column])},
                 {"role": "assistant", "content": str(example[target_column])},
-            ]
+            ], ensure_ascii=False)
         }
 
     formatted_dataset = dataset.map(
