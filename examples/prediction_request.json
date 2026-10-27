@@ -1,0 +1,6 @@
+{
+  "instances": [
+    {"prompt": "<|user|>\nA siege will crack the strong defense.<|end|>\n<|assistant|>\n"}
+  ],
+  "parameters": {"max_new_tokens": 64, "do_sample": false}
+}

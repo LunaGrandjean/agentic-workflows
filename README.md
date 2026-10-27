@@ -1,5 +1,11 @@
 # Agentic workflows: Yoda fine-tuning
 
+Session 4 adds Model Registry versions, a custom Vertex serving handler and a Chainlit
+chat app. Both model versions are registered. Version 2 was deployed on a T4 and
+verified through authenticated HTTP requests and the Chainlit browser interface.
+The temporary endpoint was then deleted to stop serving charges. See the
+[Session 4 results and screenshot](reports/session4_results.md).
+
 Recorded execution checks and cloud runs: [Session 3 results](reports/session3_results.md).
 
 The full Session 3 run succeeded through all four stages. Its 144 held-out predictions
@@ -113,3 +119,85 @@ working with these downloaded outputs.
 References: [course article](https://huggingface.co/blog/dvgodoy/fine-tuning-llm-hugging-face),
 [pinned TRL trainer](https://github.com/huggingface/trl/blob/v0.12.2/trl/trainer/sft_trainer.py),
 [Ragas metrics](https://github.com/explodinggradients/ragas/tree/v0.2.15/src/ragas/metrics).
+
+## Session 4: register, deploy, and chat
+
+The Session 4 flow is:
+
+```text
+Session 3 adapters + handler.py -> Model Registry versions -> T4 endpoint <- Chainlit chat
+```
+
+Install the app dependencies in the separate Windows environment:
+
+```powershell
+$env:UV_PROJECT_ENVIRONMENT = ".venv-session4"
+uv sync --extra app --extra evaluation --group dev --link-mode copy
+.\.venv-session4\Scripts\python.exe -m pytest -q
+```
+
+`notebooks/session4_practice.ipynb` walks through the handler, registration, versioning,
+deployment, HTTP prediction, chat app and cleanup. Use the `.venv-session4` interpreter.
+
+The standalone handler is `src/agentic_workflows/handler.py`. The registration script
+copies it to `handler.py` in the GCS model artifact directory, together with
+`serving/requirements.txt`. It records native lineage to the source pipeline and saves
+registration resource names and file hashes in `data/session4/registration.json`.
+
+For a new registration, use the downloaded Session 3 run summary or pass `--model-uri`:
+
+```powershell
+.\.venv-session4\Scripts\python.exe scripts/register_model_with_custom_handler.py --dry-run
+.\.venv-session4\Scripts\python.exe scripts/register_model_with_custom_handler.py --model-name lulik-yoda-phi3
+# To register another version, add --parent-model projects/PROJECT/locations/REGION/models/MODEL_ID
+```
+
+Versions 1 and 2 are already registered, and live serving has been verified for
+version 2. The test endpoint has been deleted. To run the app again, deploy version 2
+when one T4 is available in the project's serving quota:
+
+```powershell
+.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py deploy --model projects/123905721265/locations/europe-west2/models/8215968697160826880@2
+.\.venv-session4\Scripts\python.exe scripts/test_online_endpoint.py
+.\.venv-session4\Scripts\python.exe scripts/test_online_endpoint.py --sentence "The Force is strong in you."
+.\.venv-session4\Scripts\python.exe scripts/run_chat.py
+```
+
+Open `http://localhost:8000`. The app applies the saved tokenizer's chat template,
+authenticates its HTTP request, and displays the generated response. `run_chat.py`
+sets the child process's `DEBUG` option to a valid boolean so IDE settings such as
+`DEBUG=release` do not prevent Chainlit from starting. Restart the app after changes
+to `.env` or deployment settings.
+
+`manage_endpoint.py` uses `n1-standard-8`, one T4 GPU and one replica. It saves the
+endpoint resource to `data/session4/endpoint.json` before starting deployment and updates
+the ignored `.env` on success. `status` inspects that endpoint. `cleanup` checks the
+endpoint's ownership labels, undeploys its models, deletes it and clears `GCP_ENDPOINT_ID`:
+
+```powershell
+.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py status
+.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py cleanup
+```
+
+Cleanup is required at the end of the practice to stop provisioned serving resources.
+Model Registry versions and GCS adapters remain available. Deploy again when needed.
+
+The `.env.example` includes `GCP_PROJECT_NUMBER`, `GCP_ENDPOINT_ID`, `GCP_MODEL_RESOURCE`,
+`INPUT_DATA_FILE`, `TOKENIZER_DIR` and `AUTH_MODE`. The default `adc` mode uses existing
+Application Default Credentials and automatic token refresh; `gcloud` mode uses
+`gcloud auth print-access-token` as in the course exercise. No access token is stored.
+For a fresh checkout, download the Session 3 artifacts before starting the app so its
+tokenizer is available, or set `TOKENIZER_DIR` to a local tokenizer directory.
+
+To verify the local browser flow, run the app and then:
+
+```powershell
+uvx --from playwright python scripts/verify_chainlit_browser.py
+# While no endpoint is deployed, verify only the offline error flow:
+uvx --from playwright python scripts/verify_chainlit_browser.py --expect-offline
+```
+
+The browser script uses installed Microsoft Edge on Windows. On other systems, install
+Chromium with `uvx --from playwright python -m playwright install chromium` first.
+Browser screenshots and result manifests are saved in the ignored `data/session4/`.
+The successful live-chat screenshot is also retained in the Session 4 report.

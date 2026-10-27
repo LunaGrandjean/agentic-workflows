@@ -36,6 +36,12 @@ evaluation = [
     "ragas==0.2.15",
     "rouge-score==0.1.2",
 ]
+app = [
+    "chainlit>=2.9.4,<3",
+    "google-auth[requests]>=2.40,<3",
+    "requests>=2.32,<3",
+    "transformers==4.46.3",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]

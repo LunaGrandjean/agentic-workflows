@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -21,4 +22,17 @@ PIPELINE_ROOT = os.getenv(
 PROCESSED_DATASET_PREFIX = os.getenv(
     "PROCESSED_DATASET_PREFIX",
     f"gs://{GCP_BUCKET_NAME}/processed/yoda",
+)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+GCP_PROJECT_NUMBER = os.getenv("GCP_PROJECT_NUMBER", "")
+GCP_ENDPOINT_ID = os.getenv("GCP_ENDPOINT_ID", "")
+GCP_MODEL_RESOURCE = os.getenv("GCP_MODEL_RESOURCE", "")
+INPUT_DATA_FILE = os.getenv("INPUT_DATA_FILE", str(PROJECT_ROOT / "examples/prediction_request.json"))
+TOKENIZER_DIR = os.getenv("TOKENIZER_DIR", str(PROJECT_ROOT / "models/phi3-yoda-adapter"))
+AUTH_MODE = os.getenv("AUTH_MODE", "adc")
+SERVING_CONTAINER_IMAGE_URI = os.getenv(
+    "SERVING_CONTAINER_IMAGE_URI",
+    "us-docker.pkg.dev/deeplearning-platform-release/gcr.io/"
+    "huggingface-pytorch-inference-cu121.2-3.transformers.4-46.ubuntu2204.py311",
 )

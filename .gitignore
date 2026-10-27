@@ -1,5 +1,6 @@
 .venv/
 .venv-session3/
+.venv-session4/
 .env
 session1_practice.md
 __pycache__/
@@ -10,3 +11,5 @@ logs/
 models/
 .pytest_cache/
 .ipynb_checkpoints/
+.chainlit/
+.files/
