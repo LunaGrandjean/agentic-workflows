@@ -1,4 +1,4 @@
-"""Upload the standalone handler and register a Session 3 adapter as a Vertex model/version."""
+"""Upload the standalone handler and register trained adapters with their lineage."""
 
 import argparse
 import hashlib
@@ -9,7 +9,10 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from agentic_workflows.constants import GCP_PROJECT_ID, GCP_REGION, SERVING_CONTAINER_IMAGE_URI
+from agentic_workflows.constants import (
+    GCP_PROJECT_ID, GCP_REGION, SERVING_CONTAINER_IMAGE_URI, MODEL_ENV_KEY,
+    TASK_LABELS, TASK_MODEL_NAME, TASK_OUTPUT_DIR, WORKFLOW_TASK,
+)
 
 
 def resolve_source(model_uri: str | None, run_summary: Path) -> tuple[str, str]:
@@ -23,13 +26,13 @@ def resolve_source(model_uri: str | None, run_summary: Path) -> tuple[str, str]:
         if model_uri == summary.get("artifacts", {}).get("fine-tuning-component/model", {}).get("uri"):
             source_run = summary.get("job", "")
     if not model_uri or not model_uri.startswith("gs://") or not model_uri[5:].partition("/")[2]:
-        raise ValueError("Provide --model-uri gs://bucket/model-directory or a downloaded Session 3 run summary.")
+        raise ValueError("Provide --model-uri gs://bucket/model-directory or a successful downloaded training-run summary.")
     return model_uri.rstrip("/"), source_run
 
 
 def register_model(
     model_uri: str, model_name: str, *, source_run: str = "", parent_model: str | None = None,
-    version_alias: str = "session4", image_uri: str = SERVING_CONTAINER_IMAGE_URI,
+    version_alias: str = "restaurant-v1", image_uri: str = SERVING_CONTAINER_IMAGE_URI,
 ) -> dict:
     from google.cloud import aiplatform, storage
 
@@ -48,7 +51,7 @@ def register_model(
         bucket.blob(f"{prefix}/{name}").upload_from_filename(str(path), timeout=60)
         print(f"Uploaded {name} to {model_uri}", flush=True)
     aiplatform.init(project=GCP_PROJECT_ID, location=GCP_REGION)
-    description = f"Session 4 Yoda Phi-3 LoRA serving. Source artifacts: {model_uri}. Source pipeline: {source_run or 'specified by artifact URI'}."
+    description = f"{WORKFLOW_TASK} Phi-3 LoRA serving. Source artifacts: {model_uri}. Source pipeline: {source_run or 'specified by artifact URI'}."
     model = aiplatform.Model.upload(
         display_name=model_name, artifact_uri=model_uri, parent_model=parent_model,
         description=description, version_description=description,
@@ -56,7 +59,7 @@ def register_model(
         serving_container_ports=[8080],
         serving_container_environment_variables={"HF_TASK": "text-generation", "HF_TRUST_REMOTE_CODE": "0"},
         serving_container_deployment_timeout=3600,
-        labels={"course-session": "4", "team": "lulik"},
+        labels=TASK_LABELS,
     )
     result = {
         "model_resource": model.resource_name, "version_id": model.version_id,
@@ -88,7 +91,7 @@ def link_model_lineage(model, source_run: str, model_uri: str) -> dict:
     source = Artifact(runtime_artifact.name)
     execution = Execution.create(
         schema_title="system.ContainerExecution", schema_version="0.0.1",
-        display_name=f"Register Yoda model version {model.version_id}",
+        display_name=f"Register {WORKFLOW_TASK} model version {model.version_id}",
         metadata={"source_pipeline": source_run, "registered_model": f"{model.resource_name}@{model.version_id}"},
         credentials=aiplatform.initializer.global_config.credentials,
     )
@@ -101,10 +104,10 @@ def link_model_lineage(model, source_run: str, model_uri: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-uri")
-    parser.add_argument("--model-name", default="lulik-yoda-phi3")
-    parser.add_argument("--run-summary", type=Path, default=PROJECT_ROOT / "data/session3/run_summary.json")
+    parser.add_argument("--model-name", default=TASK_MODEL_NAME)
+    parser.add_argument("--run-summary", type=Path, default=(TASK_OUTPUT_DIR if WORKFLOW_TASK == "restaurant" else PROJECT_ROOT / "data/session3") / "run_summary.json")
     parser.add_argument("--parent-model", help="Register another version of this model resource.")
-    parser.add_argument("--version-alias", default="session4")
+    parser.add_argument("--version-alias", default="restaurant-v1" if WORKFLOW_TASK == "restaurant" else "session4")
     parser.add_argument("--image-uri", default=SERVING_CONTAINER_IMAGE_URI)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--link-existing", help="Link an existing registered model version without uploading another version.")
@@ -117,7 +120,7 @@ def main() -> None:
         print(json.dumps({"model_uri": model_uri, "source_run": source_run, "model_name": args.model_name,
                           "parent_model": args.parent_model, "image_uri": args.image_uri}, indent=2))
         return
-    output = PROJECT_ROOT / "data/session4/registration.json"
+    output = TASK_OUTPUT_DIR / "registration.json"
     if args.link_existing:
         from google.cloud import aiplatform
 
@@ -143,7 +146,7 @@ def main() -> None:
     output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     from dotenv import set_key
 
-    set_key(str(PROJECT_ROOT / ".env"), "GCP_MODEL_RESOURCE", result["versioned_model_resource"])
+    set_key(str(PROJECT_ROOT / ".env"), MODEL_ENV_KEY, result["versioned_model_resource"])
     set_key(str(PROJECT_ROOT / ".env"), "GCP_PROJECT_NUMBER", result["model_resource"].split("/")[1])
     print(json.dumps(result, indent=2), flush=True)
 

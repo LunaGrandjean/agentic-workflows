@@ -13,3 +13,4 @@ models/
 .ipynb_checkpoints/
 .chainlit/
 .files/
+.cache/

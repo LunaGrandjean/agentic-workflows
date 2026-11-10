@@ -1,0 +1,11 @@
+{
+  "instances": [
+    {
+      "prompt": "<|user|>\nWrite a short restaurant description in English using all and only the facts below. Do not invent missing details.\n\nRestaurant attributes:\nname[The Eagle], eatType[restaurant], food[Italian], priceRange[moderate], customer rating[5 out of 5], area[riverside], familyFriendly[yes], near[Burger King]<|end|>\n<|assistant|>\n"
+    }
+  ],
+  "parameters": {
+    "max_new_tokens": 128,
+    "do_sample": false
+  }
+}

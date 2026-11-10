@@ -13,9 +13,9 @@ class PredictionError(RuntimeError):
 
 def endpoint_url(project: str, region: str, endpoint_id: str) -> str:
     if not project:
-        raise PredictionError("The translation service has not been configured yet.")
+        raise PredictionError("The prediction service has not been configured yet.")
     if not endpoint_id:
-        raise PredictionError("The translation model is offline. Start its Vertex endpoint to chat.")
+        raise PredictionError("The model is offline. Deploy its Vertex endpoint to generate descriptions.")
     if not endpoint_id.isdecimal():
         raise PredictionError("GCP_ENDPOINT_ID must be the numeric endpoint ID.")
     return f"https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/endpoints/{endpoint_id}:predict"
@@ -91,4 +91,21 @@ def translate_sentence(sentence: str, *, parameters: dict[str, Any] | None = Non
     url = endpoint_url(GCP_PROJECT_NUMBER or GCP_PROJECT_ID, GCP_REGION, GCP_ENDPOINT_ID)
     prompt = build_prompt(load_tokenizer(), sentence.strip())
     payload = {"instances": [{"prompt": prompt}], "parameters": parameters or {"max_new_tokens": 64, "do_sample": False}}
+    return prediction_text(post_prediction(url, payload, auth_mode=AUTH_MODE))
+
+
+def describe_restaurant(attributes: str, *, parameters: dict[str, Any] | None = None) -> str:
+    from agentic_workflows.constants import AUTH_MODE, GCP_ENDPOINT_ID, GCP_PROJECT_ID, GCP_PROJECT_NUMBER, GCP_REGION
+    from agentic_workflows.restaurant_data import parse_restaurant_mr, restaurant_prompt
+
+    try:
+        pairs = parse_restaurant_mr(attributes)
+        if len(dict(pairs)) != len(pairs):
+            raise ValueError("Provide each restaurant attribute once to avoid conflicting instructions.")
+        instruction = restaurant_prompt(attributes)
+    except ValueError as exc:
+        raise PredictionError(str(exc)) from exc
+    url = endpoint_url(GCP_PROJECT_NUMBER or GCP_PROJECT_ID, GCP_REGION, GCP_ENDPOINT_ID)
+    prompt = build_prompt(load_tokenizer(), instruction)
+    payload = {"instances": [{"prompt": prompt}], "parameters": parameters or {"max_new_tokens": 128, "do_sample": False}}
     return prediction_text(post_prediction(url, payload, auth_mode=AUTH_MODE))

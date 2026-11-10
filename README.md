@@ -1,203 +1,161 @@
-# Agentic workflows: Yoda fine-tuning
+# Restaurant Studio — final project
 
-Session 4 adds Model Registry versions, a custom Vertex serving handler and a Chainlit
-chat app. Both model versions are registered. Version 2 was deployed on a T4 and
-verified through authenticated HTTP requests and the Chainlit browser interface.
-The temporary endpoint was then deleted to stop serving charges. See the
-[Session 4 results and screenshot](reports/session4_results.md).
+Generate English restaurant descriptions from structured attributes with
+Phi-3-mini-4k-instruct adapted on [GEM/e2e_nlg](https://huggingface.co/datasets/GEM/e2e_nlg).
+The project reuses the same Git repository and Vertex/Chainlit architecture as the
+course. The Yoda pipelines and historical results remain available.
 
-Recorded execution checks and cloud runs: [Session 3 results](reports/session3_results.md).
+See the **[current verified status](reports/restaurant_project.md)**,
+[experimental protocol](docs/restaurant_protocol.md) and
+[live presentation guide](docs/final_project_demo.md).
+The [project notebook](notebooks/final_project.ipynb) walks through the same flow.
+A compiled pipeline or successful smoke test alone does not establish model quality.
 
-The full Session 3 run succeeded through all four stages. Its 144 held-out predictions
-achieved mean ROUGE-1/2/L F1 scores of 0.9741 / 0.8551 / 0.8856. Adapters, predictions,
-scores and TensorBoard logs have been downloaded and checked; the report includes examples
-and the validation-loss trend.
-
-Session 3 extends the Session 2 Kubeflow pipeline:
-
-```text
-GCS CSV -> train/test conversations -> Phi-3 LoRA adapters -> predictions -> Ragas ROUGE scores
+```mermaid
+flowchart LR
+    S[Immutable GEM snapshot + checksums] --> P[Prepare official splits]
+    P --> T[Train Phi-3 QLoRA on train]
+    P --> V[Official validation]
+    V --> T
+    T --> M[Saved adapters + tokenizer]
+    M --> I[Same inputs with / without LoRA]
+    I --> E[Multi-reference ROUGE + diagnostics]
+    M --> R[Vertex Model Registry + lineage]
+    R --> A[T4 endpoint]
+    C[Chainlit: structured attributes] --> A
+    A --> C
 ```
 
-The training split alone is split again for validation. The held-out test set is used
-only for inference and evaluation. Training and inference each request one NVIDIA T4,
-16 CPUs and 50 GB RAM. Training saves PEFT adapters and the tokenizer; inference loads
-the original Phi-3 base model and attaches those adapters.
+## Local setup
 
-Use Python 3.11, `uv`, and the existing `.env` configuration. `transformers==4.46.3`
-and `peft==0.13.2` follow the course serving-image requirements. `trl==0.12.2` uses
-`max_seq_length` in `SFTConfig` and `processing_class` in `SFTTrainer`.
-
-## Set up and verify locally
+Use Python 3.11 and the existing `.env` Google Cloud credentials. New checkouts
+should copy `.env.example` to `.env` and configure credentials. Restaurant resources
+use dedicated variables, so the old Yoda endpoint/model cannot be selected silently.
 
 ```powershell
-uv sync --extra evaluation --group dev
-uv run --extra evaluation pytest -q
-uv run python scripts/pipeline_runner.py --compile-only
-```
-
-If Windows blocks an update to the old `.venv`, use the separate Session 3 environment:
-
-```powershell
-$env:UV_PROJECT_ENVIRONMENT = ".venv-session3"
-uv sync --extra evaluation --group dev --link-mode copy
-```
-
-The `training` extra adds PyTorch, Transformers, PEFT, TRL, bitsandbytes and TensorBoard
-for local GPU experiments. It is optional for compilation and cloud submission because
-the pipeline installs these packages inside its GPU containers.
-
-```powershell
-uv sync --extra training --extra evaluation --group dev
-```
-
-Open `notebooks/session3_practice.ipynb` for configuration inspection, dataset checks,
-local GPU training, downloading adapters, three-row inference and evaluation. Local
-fine-tuning needs an NVIDIA CUDA GPU; the notebook checks this before loading Phi-3.
-The ROUGE evaluation uses no LLM provider or API key.
-
-## Submit to Vertex AI
-
-Application Default Credentials must be valid, the raw CSV must exist at
-`RAW_DATASET_URI`, and the selected region must have T4 quota. The pipeline execution
-service account needs Vertex AI and read/write access to the GCS bucket.
-
-```powershell
-# A short end-to-end run: two training steps, three test predictions.
-uv run python scripts/pipeline_runner.py --smoke-test
-
-# Full training (three epochs), predictions on the entire test split, and evaluation.
-uv run python scripts/pipeline_runner.py --epochs 3 --learning-rate 0.0003
-
-# Optionally select the region/service account and wait for completion.
-uv run python scripts/pipeline_runner.py --region europe-west2 --service-account YOUR_SERVICE_ACCOUNT --wait
-
-# Keep access to the Session 2 pipeline.
-uv run python scripts/pipeline_runner.py --data-only --compile-only
-```
-
-Submissions use the configured GCP project and bucket and disable caching. Fresh data
-preparation is required: conversations are now JSON strings in the `messages` CSV column;
-the older NumPy/Python-style CSV representation is not suitable for the trainer.
-Regenerate local files with `uv run python scripts/run_data_processing_locally.py`.
-
-With the current account, the Vertex SDK logs a bucket ownership-check error before
-successfully creating the job. `pipeline_root` already explicitly selects the existing
-course bucket. Check the returned job state with `inspect_pipeline.py`; the Session 3
-smoke run completed successfully despite that SDK message.
-
-## Inspect artifacts
-
-Follow the job link printed by Vertex AI. The four tasks produce training/test CSVs,
-LoRA adapters, predictions, per-sample scores and aggregated metrics. Predictions have
-`user_input,reference,extracted_response` columns; evaluation adds `rouge1`, `rouge2`
-and `rougeL` F1 scores. Scores range from zero to one, with one indicating exact overlap.
-
-Print task states, errors and artifact URIs from the command line:
-
-```powershell
-uv run python scripts/inspect_pipeline.py projects/PROJECT_NUMBER/locations/europe-west2/pipelineJobs/JOB_ID
-uv run python scripts/download_pipeline_artifacts.py projects/PROJECT_NUMBER/locations/europe-west2/pipelineJobs/JOB_ID
-```
-
-Training stores TensorBoard events at the training `metrics` artifact URI and logs
-training/evaluation losses and trainable parameter counts. The model artifact includes
-`hyperparameters.json` and `training_history.json`. Download the TensorBoard events to
-`logs/`, then run `uv run --extra training tensorboard --logdir logs/`.
-
-To view the logs without installing the full training extra:
-
-```powershell
-uvx --from "tensorboard>=2.18,<3" python -m tensorboard.main --logdir logs/
-```
-
-The download script writes CSVs and a `run_summary.json` containing metric metadata to
-`data/session3/`, adapters to `models/phi3-yoda-adapter/`, and events to `logs/session3/`.
-In the notebook, use `data/session3/test.csv` and `data/session3/predictions.csv` when
-working with these downloaded outputs.
-
-References: [course article](https://huggingface.co/blog/dvgodoy/fine-tuning-llm-hugging-face),
-[pinned TRL trainer](https://github.com/huggingface/trl/blob/v0.12.2/trl/trainer/sft_trainer.py),
-[Ragas metrics](https://github.com/explodinggradients/ragas/tree/v0.2.15/src/ragas/metrics).
-
-## Session 4: register, deploy, and chat
-
-The Session 4 flow is:
-
-```text
-Session 3 adapters + handler.py -> Model Registry versions -> T4 endpoint <- Chainlit chat
-```
-
-Install the app dependencies in the separate Windows environment:
-
-```powershell
-$env:UV_PROJECT_ENVIRONMENT = ".venv-session4"
+$env:UV_PROJECT_ENVIRONMENT = '.venv-session4'
 uv sync --extra app --extra evaluation --group dev --link-mode copy
 .\.venv-session4\Scripts\python.exe -m pytest -q
 ```
 
-`notebooks/session4_practice.ipynb` walks through the handler, registration, versioning,
-deployment, HTTP prediction, chat app and cleanup. Use the `.venv-session4` interpreter.
+`WORKFLOW_TASK=restaurant` is the default. Set it to `yoda` to use the old serving
+resources. Training runs in GPU containers; a local GPU is not required for data
+preparation, pipeline compilation, scoring or the Chainlit client.
 
-The standalone handler is `src/agentic_workflows/handler.py`. The registration script
-copies it to `handler.py` in the GCS model artifact directory, together with
-`serving/requirements.txt`. It records native lineage to the source pipeline and saves
-registration resource names and file hashes in `data/session4/registration.json`.
+## Prepare the dataset
 
-For a new registration, use the downloaded Session 3 run summary or pass `--model-uri`:
+```powershell
+.\.venv-session4\Scripts\python.exe scripts/prepare_restaurant_dataset.py
+.\.venv-session4\Scripts\python.exe scripts/prepare_restaurant_dataset.py --offline --upload
+.\.venv-session4\Scripts\python.exe scripts/audit_restaurant_quality.py
+```
+
+The script freezes public Parquet revisions and checksums. The official snapshot
+has **33,525 train, 1,484 validation and 1,847 test rows**. No random train/test split
+is introduced. References are retained and grouped by canonical input for evaluation.
+Data, manifests and derived CSVs live under ignored `data/restaurant/`.
+The GCS manifest URI is written to `data/restaurant/dataset_uri.txt`.
+
+Dataset attribution and CC-BY-SA-4.0 terms are recorded in the protocol and manifest.
+The code and data have separate provenance; the full dataset is not committed.
+
+## Compile and run on Vertex
+
+```powershell
+# Local compilation only; no GPU allocation.
+.\.venv-session4\Scripts\python.exe scripts/run_restaurant_pipeline.py --compile-only
+
+# Technical check: 32 training rows, 2 updates and 8 validation inputs.
+.\.venv-session4\Scripts\python.exe scripts/run_restaurant_pipeline.py --smoke-test
+
+# Declared pilot: 4,000 training rows, 200 validation inputs, one epoch.
+.\.venv-session4\Scripts\python.exe scripts/run_restaurant_pipeline.py --train-limit 4000 --validation-limit 200 --epochs 1
+
+# Inspect an actual returned resource name.
+.\.venv-session4\Scripts\python.exe scripts/inspect_pipeline.py projects/PROJECT/locations/REGION/pipelineJobs/RUN
+```
+
+These cloud runs allocate billable GPU jobs. Training and inference request one T4
+per GPU task, 16 CPUs and 50 GB memory. Validation uses the official validation
+split; the test data does not enter training or checkpoint selection.
+Use limits of `0` for the complete split, and record the actual sample sizes.
+The default generation is deterministic, with at most 128 new tokens.
+
+For presentation figures, add `--extra plots` to the setup command. After
+downloading a real run, `scripts/plot_restaurant_results.py` exports PNG/PDF
+ROUGE comparisons and the logged training-loss curve to `reports/figures/`.
+Regenerate these after changing the selected run.
+
+After a successful pilot, download its artifacts:
+
+```powershell
+.\.venv-session4\Scripts\python.exe scripts/download_pipeline_artifacts.py projects/PROJECT/locations/REGION/pipelineJobs/RUN
+.\.venv-session4\Scripts\python.exe scripts/write_restaurant_report.py
+```
+
+Download technical smoke tests to a separate directory and separate model/log paths;
+do not overwrite the selected model or present smoke-test scores as final results.
+
+After selecting the model on validation, evaluate its frozen adapters on the
+**official test split without retraining**:
+
+```powershell
+.\.venv-session4\Scripts\python.exe scripts/run_restaurant_pipeline.py --evaluate-model gs://BUCKET/CHOSEN_RUN/model --test-limit 0
+.\.venv-session4\Scripts\python.exe scripts/download_pipeline_artifacts.py projects/PROJECT/locations/REGION/pipelineJobs/TEST_RUN --output-dir data/restaurant/final_test
+```
+
+Scores compare base Phi-3 (adapters disabled) and fine-tuned Phi-3 under the same
+prompt and generation settings. ROUGE-1/2/L F1 uses the best available reference
+for each metric, then averages per unique input. Literal name/landmark coverage
+is a limited diagnostic. Check unsupported details and negation manually as well.
+
+## Register, deploy and demonstrate
+
+These commands require successful **Restaurant** training artifacts downloaded to
+the default directory. Registration preserves source-pipeline lineage.
 
 ```powershell
 .\.venv-session4\Scripts\python.exe scripts/register_model_with_custom_handler.py --dry-run
-.\.venv-session4\Scripts\python.exe scripts/register_model_with_custom_handler.py --model-name lulik-yoda-phi3
-# To register another version, add --parent-model projects/PROJECT/locations/REGION/models/MODEL_ID
-```
-
-Versions 1 and 2 are already registered, and live serving has been verified for
-version 2. The test endpoint has been deleted. To run the app again, deploy version 2
-when one T4 is available in the project's serving quota:
-
-```powershell
-.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py deploy --model projects/123905721265/locations/europe-west2/models/8215968697160826880@2
+.\.venv-session4\Scripts\python.exe scripts/register_model_with_custom_handler.py
+.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py deploy
 .\.venv-session4\Scripts\python.exe scripts/test_online_endpoint.py
-.\.venv-session4\Scripts\python.exe scripts/test_online_endpoint.py --sentence "The Force is strong in you."
 .\.venv-session4\Scripts\python.exe scripts/run_chat.py
 ```
 
-Open `http://localhost:8000`. The app applies the saved tokenizer's chat template,
-authenticates its HTTP request, and displays the generated response. `run_chat.py`
-sets the child process's `DEBUG` option to a valid boolean so IDE settings such as
-`DEBUG=release` do not prevent Chainlit from starting. Restart the app after changes
-to `.env` or deployment settings.
+Open `http://localhost:8000` and paste attributes from `examples/restaurants.json`.
+The app applies the same instruction and canonical ordering as training and uses
+Application Default Credentials to call Vertex. `AUTH_MODE=gcloud` is also supported.
+No token is stored in result files. Deployment writes the dedicated Restaurant
+model/endpoint IDs to the ignored `.env`; restart Chainlit after these change.
 
-`manage_endpoint.py` uses `n1-standard-8`, one T4 GPU and one replica. It saves the
-endpoint resource to `data/session4/endpoint.json` before starting deployment and updates
-the ignored `.env` on success. `status` inspects that endpoint. `cleanup` checks the
-endpoint's ownership labels, undeploys its models, deletes it and clears `GCP_ENDPOINT_ID`:
-
-```powershell
-.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py status
-.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py cleanup
-```
-
-Cleanup is required at the end of the practice to stop provisioned serving resources.
-Model Registry versions and GCS adapters remain available. Deploy again when needed.
-
-The `.env.example` includes `GCP_PROJECT_NUMBER`, `GCP_ENDPOINT_ID`, `GCP_MODEL_RESOURCE`,
-`INPUT_DATA_FILE`, `TOKENIZER_DIR` and `AUTH_MODE`. The default `adc` mode uses existing
-Application Default Credentials and automatic token refresh; `gcloud` mode uses
-`gcloud auth print-access-token` as in the course exercise. No access token is stored.
-For a fresh checkout, download the Session 3 artifacts before starting the app so its
-tokenizer is available, or set `TOKENIZER_DIR` to a local tokenizer directory.
-
-To verify the local browser flow, run the app and then:
+In another terminal:
 
 ```powershell
 uvx --from playwright python scripts/verify_chainlit_browser.py
-# While no endpoint is deployed, verify only the offline error flow:
-uvx --from playwright python scripts/verify_chainlit_browser.py --expect-offline
+.\.venv-session4\Scripts\python.exe scripts/demo_restaurant.py
 ```
 
-The browser script uses installed Microsoft Edge on Windows. On other systems, install
-Chromium with `uvx --from playwright python -m playwright install chromium` first.
-Browser screenshots and result manifests are saved in the ignored `data/session4/`.
-The successful live-chat screenshot is also retained in the Session 4 report.
+On Windows the browser check uses installed Microsoft Edge. Elsewhere install
+Chromium with `uvx --from playwright python -m playwright install chromium`.
+With no deployed endpoint, `--expect-offline` verifies only the UI error flow.
+The explicit replay mode in the presentation guide uses recorded pipeline outputs.
+
+**After testing, stop Chainlit and remove the billable endpoint:**
+
+```powershell
+.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py cleanup
+.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py list
+```
+
+The script checks ownership labels and keeps registered models and source weights.
+Start deployment before the presentation: provisioning can take 15–30 minutes and
+requires T4 serving quota separate from training quota.
+
+## Course history
+
+- [Previous course workflow](docs/course_workflow.md)
+- [Session 3: Yoda training and evaluation](reports/session3_results.md)
+- [Session 4: Yoda deployment and app](reports/session4_results.md)
+
+The existing `scripts/pipeline_runner.py` and Yoda pipeline functions are retained
+for those sessions. New final-project runs use `scripts/run_restaurant_pipeline.py`.

@@ -1,5 +1,8 @@
-# Speak like Yoda
+# Restaurant Studio
 
-Turn an English sentence into Yoda-style speech with the Phi-3 model fine-tuned in Session 3.
+Generate an English restaurant description from structured facts using Phi-3 adapted on GEM/E2E.
 
-Try: **The Force is strong in you.**
+Try: `name[The Eagle], eatType[restaurant], food[Italian], priceRange[moderate], area[riverside], familyFriendly[yes]`
+
+Use the English attribute names shown in the welcome message. Only include known facts;
+omit fields you do not know. Check the generated description against the input facts.

@@ -1,0 +1,18 @@
+[
+  {
+    "title": "Complete restaurant profile",
+    "attributes": "name[The Eagle], eatType[restaurant], food[Italian], priceRange[moderate], customer rating[5 out of 5], area[riverside], familyFriendly[yes], near[Burger King]"
+  },
+  {
+    "title": "Missing attributes: do not invent a price or rating",
+    "attributes": "name[Blue Spice], food[French], area[city centre]"
+  },
+  {
+    "title": "Negation: not suitable for families",
+    "attributes": "name[The Punter], eatType[pub], food[English], priceRange[cheap], familyFriendly[no]"
+  },
+  {
+    "title": "Same profile in a different slot order",
+    "attributes": "near[Burger King], familyFriendly[yes], area[riverside], customer rating[5 out of 5], priceRange[moderate], food[Italian], eatType[restaurant], name[The Eagle]"
+  }
+]

@@ -13,6 +13,7 @@ def inference_component(
     predictions: Output[Dataset],
     max_new_tokens: int = 64,
     max_samples: int = 0,
+    compare_base_model: bool = False,
 ) -> None:
     import json
     from pathlib import Path
@@ -40,21 +41,31 @@ def inference_component(
     if max_samples:
         frame = frame.head(max_samples)
     rows = []
-    for value in frame["messages"]:
-        conversation = json.loads(value)
+    for row in frame.to_dict("records"):
+        conversation = json.loads(row["messages"])
         sentence = next(message["content"] for message in conversation if message["role"] == "user")
         reference = next(message["content"] for message in conversation if message["role"] == "assistant")
         prompt = tokenizer.apply_chat_template(
             [{"role": "user", "content": sentence}], tokenize=False, add_generation_prompt=True,
         )
         inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(adapted.device)
-        with torch.inference_mode():
-            output = adapted.generate(
-                **inputs, max_new_tokens=max_new_tokens, do_sample=False,
-                pad_token_id=tokenizer.pad_token_id,
-            )
-        response = tokenizer.decode(output[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-        rows.append(dict(user_input=sentence, reference=reference, extracted_response=response))
+        def generate():
+            with torch.inference_mode():
+                output = adapted.generate(
+                    **inputs, max_new_tokens=max_new_tokens, do_sample=False,
+                    pad_token_id=tokenizer.pad_token_id,
+                )
+            return tokenizer.decode(output[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+        result = dict(user_input=sentence, reference=reference, extracted_response=generate())
+        for key in ("gem_id", "mr_id", "source_split", "meaning_representation", "references"):
+            if key in row:
+                result[key] = row[key]
+        if compare_base_model:
+            with adapted.disable_adapter():
+                result["base_response"] = generate()
+        rows.append(result)
     Path(predictions.path).parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows, columns=["user_input", "reference", "extracted_response"]).to_csv(predictions.path, index=False)
+    if not rows:
+        raise ValueError("No inference rows were selected.")
+    pd.DataFrame(rows).to_csv(predictions.path, index=False)
     predictions.metadata["num_samples"] = len(rows)

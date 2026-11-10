@@ -1,7 +1,7 @@
 [project]
 name = "agentic-workflows"
-version = "0.1.0"
-description = "Kubeflow workflows for Phi-3 LoRA fine-tuning and Yoda translation evaluation"
+version = "0.2.0"
+description = "GEM/E2E restaurant descriptions with Phi-3 QLoRA, Vertex AI workflows and Chainlit"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -13,12 +13,15 @@ dependencies = [
     "kfp>=2.14.6",
     "pandas>=2.3.3",
     "python-dotenv>=1.2.4",
+    "pyarrow>=19,<26",
+    "requests>=2.32,<3",
 ]
 
 [project.scripts]
 agentic-workflows = "agentic_workflows:main"
 
 [project.optional-dependencies]
+plots = ["matplotlib>=3.9,<4"]
 training = [
     "accelerate>=1.0,<2",
     "bitsandbytes>=0.45.5,<0.49 ; sys_platform != 'darwin'",

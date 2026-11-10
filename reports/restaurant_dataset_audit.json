@@ -1,0 +1,63 @@
+{
+  "manifest": {
+    "dataset": "GEM/e2e_nlg",
+    "source_revision": "0e089c2ba61c3a0d183815c87c2c95e98fb446a6",
+    "parquet_revision": "f97230c6d02c1678ec0279be4dea6dc722803a0a",
+    "license": "CC-BY-SA-4.0",
+    "files": {
+      "train": {
+        "url": "https://huggingface.co/datasets/GEM/e2e_nlg/resolve/f97230c6d02c1678ec0279be4dea6dc722803a0a/default/train/0000.parquet",
+        "sha256": "09c99852916f5caf9187df6606745dc24868cfb02fa165d528655cd93faae52e",
+        "rows": 33525
+      },
+      "validation": {
+        "url": "https://huggingface.co/datasets/GEM/e2e_nlg/resolve/f97230c6d02c1678ec0279be4dea6dc722803a0a/default/validation/0000.parquet",
+        "sha256": "198fd4939c07542a028f9af815072d43d7f8afe21c0705694a166e8b1f22cd3f",
+        "rows": 1484
+      },
+      "test": {
+        "url": "https://huggingface.co/datasets/GEM/e2e_nlg/resolve/f97230c6d02c1678ec0279be4dea6dc722803a0a/default/test/0000.parquet",
+        "sha256": "8f02ebdba1175195a9cfb64c5a13dfe4b4edc872c3c31dddc380a3ca82e9f540",
+        "rows": 1847
+      }
+    }
+  },
+  "preparation": {
+    "dataset": "GEM/e2e_nlg",
+    "seed": 42,
+    "splits": {
+      "train": {
+        "raw_rows": 33525,
+        "unique_mrs": 12568,
+        "prepared_rows": 33525,
+        "limit": 0,
+        "grouped_references": false,
+        "repeated_slot_rows": 1443
+      },
+      "validation": {
+        "raw_rows": 1484,
+        "unique_mrs": 1484,
+        "prepared_rows": 1484,
+        "limit": 0,
+        "grouped_references": true,
+        "repeated_slot_rows": 190
+      },
+      "test": {
+        "raw_rows": 1847,
+        "unique_mrs": 1847,
+        "prepared_rows": 1847,
+        "limit": 0,
+        "grouped_references": true,
+        "repeated_slot_rows": 141
+      }
+    },
+    "canonical_overlap_before_filtering": {
+      "train_validation": 0,
+      "train_test": 0,
+      "validation_test": 0
+    },
+    "training_rows_removed_for_overlap": 0,
+    "prompt_version": "restaurant-v1",
+    "evaluation_protocol": "Macro mean over unique MRs; maximum ROUGE F1 over the union of references for each MR."
+  }
+}

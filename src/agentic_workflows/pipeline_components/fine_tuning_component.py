@@ -24,6 +24,7 @@ def fine_tuning_component(
     validation_size: float = 0.1,
     seed: int = 42,
     max_steps: int = -1,
+    validation_dataset: Input[Dataset] = None,
 ) -> None:
     import json
     import logging
@@ -41,7 +42,7 @@ def fine_tuning_component(
     logging.basicConfig(level=logging.INFO)
     if not torch.cuda.is_available():
         raise RuntimeError("Fine-tuning requires a CUDA GPU. Run this step on Vertex AI or a CUDA machine.")
-    if not 0 < validation_size < 1:
+    if validation_dataset is None and not 0 < validation_size < 1:
         raise ValueError("validation_size must be between 0 and 1.")
     set_seed(seed)
     parameters = dict(
@@ -64,7 +65,19 @@ def fine_tuning_component(
         tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         for messages in conversations
     ]})
-    split = dataset.train_test_split(test_size=validation_size, seed=seed)
+    if validation_dataset is not None:
+        validation_frame = pd.read_csv(validation_dataset.path)
+        validation = HFDataset.from_dict({"text": [
+            tokenizer.apply_chat_template(json.loads(value), tokenize=False, add_generation_prompt=False)
+            for value in validation_frame["messages"]
+        ]})
+        if not len(validation):
+            raise ValueError("The official validation split must not be empty.")
+        split = {"train": dataset, "test": validation}
+    else:
+        split = dataset.train_test_split(test_size=validation_size, seed=seed)
+    parameters.update(train_rows=len(split["train"]), validation_rows=len(split["test"]),
+                      validation_source="official" if validation_dataset is not None else "random_training_split")
     quantization = BitsAndBytesConfig(
         load_in_4bit=True, bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.float16,
@@ -88,10 +101,11 @@ def fine_tuning_component(
     trainable, total = adapted.get_nb_trainable_parameters()
     Path(model.path).mkdir(parents=True, exist_ok=True)
     Path(metrics.path).mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="yoda-training-") as checkpoint_dir:
+    with tempfile.TemporaryDirectory(prefix="phi3-training-") as checkpoint_dir:
         config = SFTConfig(
             output_dir=checkpoint_dir, logging_dir=metrics.path, report_to=["tensorboard"],
-            logging_steps=1, eval_strategy="epoch", save_strategy="no",
+            logging_steps=1, eval_strategy="epoch", save_strategy="epoch",
+            save_total_limit=1, load_best_model_at_end=True, metric_for_best_model="eval_loss",
             num_train_epochs=num_train_epochs, max_steps=max_steps,
             learning_rate=learning_rate, per_device_train_batch_size=batch_size,
             per_device_eval_batch_size=batch_size,
@@ -112,7 +126,8 @@ def fine_tuning_component(
         Path(model.path, "training_history.json").write_text(
             json.dumps(trainer.state.log_history, indent=2), encoding="utf-8",
         )
-    scores.update(trainable_parameters=trainable, total_parameters=total,
+    scores.update(train_rows=len(split["train"]), validation_rows=len(split["test"]),
+                  trainable_parameters=trainable, total_parameters=total,
                   trainable_fraction=trainable / total)
     for name, value in scores.items():
         if isinstance(value, (int, float)) and math.isfinite(value):

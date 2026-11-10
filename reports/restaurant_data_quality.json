@@ -1,0 +1,13 @@
+{
+  "snapshot": "f97230c6d02c1678ec0279be4dea6dc722803a0a",
+  "conflicting_slot_rows": {
+    "train": 1443,
+    "validation": 190,
+    "test": 141
+  },
+  "reference_overlap": {
+    "train_validation": 1,
+    "train_test": 0,
+    "validation_test": 0
+  }
+}
