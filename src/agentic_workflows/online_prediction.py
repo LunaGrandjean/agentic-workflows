@@ -5,6 +5,7 @@ import subprocess
 from typing import Any
 
 from agentic_workflows.inference import build_prompt, extract_response
+from agentic_workflows.observability import start_chat_trace, start_model_generation
 
 
 class PredictionError(RuntimeError):
@@ -21,7 +22,7 @@ def endpoint_url(project: str, region: str, endpoint_id: str) -> str:
     return f"https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/endpoints/{endpoint_id}:predict"
 
 
-def prediction_text(payload: dict[str, Any]) -> str:
+def prediction_raw_text(payload: dict[str, Any]) -> str:
     predictions = payload.get("predictions")
     if not isinstance(predictions, list) or not predictions:
         raise PredictionError("The endpoint returned no predictions.")
@@ -29,7 +30,11 @@ def prediction_text(payload: dict[str, Any]) -> str:
     text = first.get("generated_text") if isinstance(first, dict) else first
     if not isinstance(text, str) or not text.strip():
         raise PredictionError("The endpoint returned an empty or unsupported response.")
-    return extract_response(text)
+    return text
+
+
+def prediction_text(payload: dict[str, Any]) -> str:
+    return extract_response(prediction_raw_text(payload))
 
 
 def post_prediction(
@@ -83,20 +88,96 @@ def load_tokenizer():
     return AutoTokenizer.from_pretrained(TOKENIZER_DIR)
 
 
+def _traced_prediction(
+    *,
+    user_input: str,
+    prompt: str,
+    parameters: dict[str, Any],
+    url: str,
+    auth_mode: str,
+    model_name: str,
+    task: str,
+    model_resource: str,
+    endpoint_id: str,
+    region: str,
+    answer_guard: Any = None,
+) -> str:
+    """Call Vertex and capture both the chat turn and raw model generation."""
+    with start_chat_trace(user_input, task=task) as trace:
+        with start_model_generation(
+            prompt=prompt,
+            parameters=parameters,
+            model_name=model_name,
+            task=task,
+            model_resource=model_resource,
+            endpoint_id=endpoint_id,
+            region=region,
+        ) as generation:
+            prediction = post_prediction(
+                url,
+                {"instances": [{"prompt": prompt}], "parameters": parameters},
+                auth_mode=auth_mode,
+            )
+            raw_output = prediction_raw_text(prediction)
+            answer = extract_response(raw_output)
+            if answer_guard is not None:
+                answer = answer_guard(answer)
+            if generation is not None:
+                # Store the response that passed the application guard, not an unsafe raw draft.
+                generation.update(output=answer)
+        if trace is not None:
+            trace.update(output=answer)
+        return answer
+
+
 def translate_sentence(sentence: str, *, parameters: dict[str, Any] | None = None) -> str:
-    from agentic_workflows.constants import AUTH_MODE, GCP_ENDPOINT_ID, GCP_PROJECT_ID, GCP_PROJECT_NUMBER, GCP_REGION
+    from agentic_workflows.constants import (
+        AUTH_MODE,
+        GCP_ENDPOINT_ID,
+        GCP_MODEL_RESOURCE,
+        GCP_PROJECT_ID,
+        GCP_PROJECT_NUMBER,
+        GCP_REGION,
+        TASK_MODEL_NAME,
+        WORKFLOW_TASK,
+    )
 
     if not isinstance(sentence, str) or not sentence.strip():
         raise PredictionError("Enter an English sentence to translate.")
     url = endpoint_url(GCP_PROJECT_NUMBER or GCP_PROJECT_ID, GCP_REGION, GCP_ENDPOINT_ID)
     prompt = build_prompt(load_tokenizer(), sentence.strip())
-    payload = {"instances": [{"prompt": prompt}], "parameters": parameters or {"max_new_tokens": 64, "do_sample": False}}
-    return prediction_text(post_prediction(url, payload, auth_mode=AUTH_MODE))
+    model_parameters = parameters or {"max_new_tokens": 64, "do_sample": False}
+    return _traced_prediction(
+        user_input=sentence,
+        prompt=prompt,
+        parameters=model_parameters,
+        url=url,
+        auth_mode=AUTH_MODE,
+        model_name=TASK_MODEL_NAME,
+        task=WORKFLOW_TASK,
+        model_resource=GCP_MODEL_RESOURCE,
+        endpoint_id=GCP_ENDPOINT_ID,
+        region=GCP_REGION,
+    )
 
 
 def describe_restaurant(attributes: str, *, parameters: dict[str, Any] | None = None) -> str:
-    from agentic_workflows.constants import AUTH_MODE, GCP_ENDPOINT_ID, GCP_PROJECT_ID, GCP_PROJECT_NUMBER, GCP_REGION
-    from agentic_workflows.restaurant_data import parse_restaurant_mr, restaurant_prompt
+    from agentic_workflows.constants import (
+        AUTH_MODE,
+        GCP_ENDPOINT_ID,
+        GCP_MODEL_RESOURCE,
+        GCP_PROJECT_ID,
+        GCP_PROJECT_NUMBER,
+        GCP_REGION,
+        TASK_MODEL_NAME,
+        WORKFLOW_TASK,
+    )
+    from agentic_workflows.restaurant_data import (
+        parse_restaurant_mr,
+        restaurant_prompt,
+        restaurant_response_needs_fallback,
+        safe_restaurant_fallback,
+    )
 
     try:
         pairs = parse_restaurant_mr(attributes)
@@ -107,5 +188,23 @@ def describe_restaurant(attributes: str, *, parameters: dict[str, Any] | None = 
         raise PredictionError(str(exc)) from exc
     url = endpoint_url(GCP_PROJECT_NUMBER or GCP_PROJECT_ID, GCP_REGION, GCP_ENDPOINT_ID)
     prompt = build_prompt(load_tokenizer(), instruction)
-    payload = {"instances": [{"prompt": prompt}], "parameters": parameters or {"max_new_tokens": 128, "do_sample": False}}
-    return prediction_text(post_prediction(url, payload, auth_mode=AUTH_MODE))
+    model_parameters = parameters or {"max_new_tokens": 128, "do_sample": False}
+
+    def guard_response(answer: str) -> str:
+        if restaurant_response_needs_fallback(pairs, answer):
+            return safe_restaurant_fallback(pairs)
+        return answer
+
+    return _traced_prediction(
+        user_input=attributes,
+        prompt=prompt,
+        parameters=model_parameters,
+        url=url,
+        auth_mode=AUTH_MODE,
+        model_name=TASK_MODEL_NAME,
+        task=WORKFLOW_TASK,
+        model_resource=GCP_MODEL_RESOURCE,
+        endpoint_id=GCP_ENDPOINT_ID,
+        region=GCP_REGION,
+        answer_guard=guard_response,
+    )

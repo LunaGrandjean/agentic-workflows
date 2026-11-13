@@ -43,6 +43,27 @@ def test_malformed_attributes_fail_before_prediction(text):
         parse_restaurant_mr(text)
 
 
+@pytest.mark.parametrize("price", ["cheap", "moderate", "expensive", "high", "less than £20", "£20-25", "£25-30", "more than £30"])
+def test_official_price_bands_are_supported(price):
+    assert parse_restaurant_mr(f"name[Alpha], priceRange[{price}]")[-1] == ("priceRange", price)
+
+
+@pytest.mark.parametrize(
+    "mr,response,rejected",
+    [
+        ("name[Alpha], priceRange[£20-25]", "Alpha is in the £20-25 price band.", False),
+        ("name[Alpha], priceRange[£20-25]", "Alpha is in the £25-30 price band.", True),
+        ("name[Alpha], priceRange[high]", "Alpha is a high-price restaurant.", False),
+        ("name[Alpha]", "Alpha is a high-quality restaurant.", False),
+        ("name[Alpha]", "Alpha is a cheap restaurant.", True),
+    ],
+)
+def test_price_output_guard_respects_official_bands(mr, response, rejected):
+    from agentic_workflows.restaurant_data import restaurant_response_needs_fallback
+
+    assert restaurant_response_needs_fallback(parse_restaurant_mr(mr), response) is rejected
+
+
 def test_official_splits_and_all_references_survive_preparation():
     frames, audit = prepare_restaurant_frames(fixture_splits())
     assert [len(frames[key]) for key in ("train", "validation", "test")] == [2, 1, 1]

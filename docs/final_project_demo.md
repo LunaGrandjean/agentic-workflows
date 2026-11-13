@@ -18,38 +18,53 @@ en anglais ; la présentation peut être en français.
 4. **Modèle.** Phi-3-mini-4k-instruct, base chargée en 4 bits pour l'entraînement,
    adaptateurs LoRA. Expliquer que les adaptateurs sont sauvegardés séparément.
 5. **Expérience supplémentaire.** Comparer la base et le modèle adapté avec
-   exactement les mêmes prompts et paramètres. Montrer les différences et les
-   cas où le fine-tuning ne gagne pas. Ne pas présenter un smoke test comme une
-   preuve de qualité ; indiquer les tailles réellement utilisées.
-6. **Application en direct.** Chainlit applique le même prompt qu'à l'entraînement,
-   authentifie la requête HTTP et appelle le modèle enregistré dans Vertex.
-7. **Robustesse et limites.** Montrer l'ordre des attributs permuté, un profil
-   incomplet et `familyFriendly[no]`. Examiner manuellement omissions et ajouts.
-   ROUGE mesure le recouvrement lexical, pas la vérité de tous les faits.
-8. **Reproductibilité et coût.** Montrer les versions du modèle, sa provenance,
-   les métriques enregistrées et la commande de suppression de l'endpoint.
+   exactement les mêmes prompts et paramètres. Ne pas présenter un smoke test
+   comme une preuve de qualité.
+6. **Résultat du test officiel.** Le modèle `restaurant-v1` a été évalué sur les
+   1 847 exemples tenus à l'écart. ROUGE-1 passe de 0.5311 à 0.7386, ROUGE-2
+   de 0.2901 à 0.4554 et ROUGE-L de 0.3858 à 0.5279. Une évaluation séparée de
+   `restaurant-v2-security` sur les entrées acceptées par le parseur (1 706/1 847)
+   donne, après garde-fou, ROUGE-1/2/L de 0.7292/0.4550/0.5479. Comparer sur le
+   même sous-ensemble : `v1` adapté avait 0.7429/0.4620/0.5348. Le modèle est
+   resté identique ; le prompt et les contrôles de serving ont changé.
+7. **Application et sécurité.** Chainlit appelle le modèle Restaurant enregistré
+   dans Vertex. Le parseur rejette des entrées invalides ou des tentatives
+   d'injection ciblées avant l'appel au modèle. Le test officiel contenait 141
+   entrées à attributs répétés, que l'app aurait rejetées ; le contrôle de sortie
+   a remplacé 30 réponses par une description de secours. Montrer aussi les tests
+   Langfuse ; ils ne couvrent pas le lot de 1 706 exemples.
+8. **Limites, reproductibilité et coût.** ROUGE mesure le recouvrement lexical,
+   pas la vérité de tous les faits. Les requêtes rejetées avant génération ne
+   créent pas de score Langfuse. L'endpoint T4 coûte tant qu'il reste déployé.
 
 ## Préparer la démonstration
 
-Depuis la racine du dépôt, utiliser `.venv-session4`. Vérifier d'abord les résultats
-dans `reports/restaurant_project.md` : un statut « local » ou « smoke » ne signifie
-pas que l'entraînement de qualité et la démo live ont réussi.
+Depuis la racine du dépôt, utiliser `.venv-session5`. Vérifier d'abord les résultats
+dans `reports/restaurant_project.md`. Les évaluations v1 et v2 ainsi qu'une
+vérification Chainlit live ont réussi. Vérifier l'état Vertex avant la présentation,
+car l'état local enregistré peut être périmé.
 
 Prévoir le temps de déploiement de Vertex avant la présentation (le précédent
 exercice a pris environ 20 minutes). Le déploiement utilise un T4 de serving,
 dont le quota est distinct de celui de l'entraînement.
 
 ```powershell
-.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py deploy
-.\.venv-session4\Scripts\python.exe scripts/test_online_endpoint.py
-.\.venv-session4\Scripts\python.exe scripts/run_chat.py
+.\.venv-session5\Scripts\python.exe scripts/manage_endpoint.py list
+.\.venv-session5\Scripts\python.exe scripts/test_online_endpoint.py
+.\.venv-session5\Scripts\python.exe scripts/run_chat.py
+```
+
+Si aucun endpoint Restaurant n'est déployé, le redéployer avant le test en direct :
+
+```powershell
+.\.venv-session5\Scripts\python.exe scripts/manage_endpoint.py deploy
 ```
 
 Ouvrir `http://localhost:8000`. Dans un autre terminal :
 
 ```powershell
 uvx --from playwright python scripts/verify_chainlit_browser.py
-.\.venv-session4\Scripts\python.exe scripts/demo_restaurant.py
+.\.venv-session5\Scripts\python.exe scripts/demo_restaurant.py
 ```
 
 Ces commandes supposent qu'un **modèle Restaurant entraîné et enregistré** est
@@ -73,7 +88,7 @@ Si le réseau ou le quota de serving bloque la démo, montrer des sorties réell
 enregistrées lors du pipeline, en annonçant explicitement le mode différé :
 
 ```powershell
-.\.venv-session4\Scripts\python.exe scripts/demo_restaurant.py --replay data/restaurant/evaluation_results.csv
+.\.venv-session5\Scripts\python.exe scripts/demo_restaurant.py --replay data/restaurant/final_test/evaluation_results.csv
 ```
 
 Ce mode n'appelle pas Vertex et n'est pas une preuve d'inférence en direct. Garder
@@ -84,8 +99,8 @@ une capture du graphe terminé, les résultats et la provenance du run choisi.
 Arrêter Chainlit avec Ctrl+C, puis :
 
 ```powershell
-.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py cleanup
-.\.venv-session4\Scripts\python.exe scripts/manage_endpoint.py list
+.\.venv-session5\Scripts\python.exe scripts/manage_endpoint.py cleanup
+.\.venv-session5\Scripts\python.exe scripts/manage_endpoint.py list
 ```
 
 La suppression concerne l'endpoint temporaire du projet Restaurant. Les versions

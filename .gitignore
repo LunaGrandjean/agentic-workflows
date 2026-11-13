@@ -1,8 +1,15 @@
 .venv/
 .venv-session3/
 .venv-session4/
+.venv-session5/
+/.langfuse/
+/.uv-cache/
 .env
-session1_practice.md
+# Course session handouts and supplied data (keep local, out of Git).
+/session*_practice.md
+/session*_slides.pdf
+/session*_code.zip
+/yoda_sentences*.csv
 __pycache__/
 *.py[cod]
 data/
